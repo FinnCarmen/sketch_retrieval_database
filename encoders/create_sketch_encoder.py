@@ -2,6 +2,7 @@
 PNG草图编码器
 使用Vision Transformer架构对PNG格式的草图进行编码
 """
+
 import torch
 import torch.nn as nn
 import timm
@@ -12,17 +13,21 @@ from sdgraph import sdgraph_sel
 
 # model_name: [sketch_format, sketch_rep, subdirs]
 supported_encoders = {
-    'vit': {'format': 'image',
-            'rep': 'IMG',
-            'subdirs': ('sketch_stk11_stkpnt32', 'sketch_png', 'photo')},
-
-    'sdgraph': {'format': 'vector',
-                'rep': 'STK_11_32',
-                'subdirs': ('sketch_stk11_stkpnt32', 'sketch_png', 'photo')},
-
-    'lstm': {'format': 'vector',
-             'rep': 'S5',
-             'subdirs': ('sketch_s3_352', 'sketch_png', 'photo')}
+    "vit": {
+        "format": "image",
+        "rep": "IMG",
+        "subdirs": ("sketch_stk11_stkpnt32", "sketch_png", "photo"),
+    },
+    "sdgraph": {
+        "format": "vector",
+        "rep": "STK_11_32",
+        "subdirs": ("sketch_stk11_stkpnt32", "sketch_png", "photo"),
+    },
+    "lstm": {
+        "format": "vector",
+        "rep": "S5",
+        "subdirs": ("sketch_s3_352", "sketch_png", "photo"),
+    },
 }
 
 
@@ -30,16 +35,18 @@ class PNGSketchEncoder(nn.Module):
     """
     PNG草图编码器，基于Vision Transformer
     """
-    
-    def __init__(self, 
-                 model_name='vit_base_patch16_224',
-                 pretrained=True,
-                 freeze_backbone=False,
-                 output_dim=512,
-                 dropout_rate=0.1):
+
+    def __init__(
+        self,
+        model_name="vit_base_patch16_224",
+        pretrained=True,
+        freeze_backbone=False,
+        output_dim=512,
+        dropout_rate=0.1,
+    ):
         """
         初始化PNG草图编码器
-        
+
         Args:
             model_name: 预训练模型名称
             pretrained: 是否使用预训练权重
@@ -48,56 +55,95 @@ class PNGSketchEncoder(nn.Module):
             dropout_rate: Dropout率
         """
         super(PNGSketchEncoder, self).__init__()
-        
+
         self.model_name = model_name
         self.output_dim = output_dim
         self.freeze_backbone = freeze_backbone
-        
+
         # 创建ViT模型
-        if 'vit' in model_name.lower():
+        if "vit" in model_name.lower():
+
+            # ======================= 开始修改 =======================
+            print("-----> [INFO] 使用本地加载逻辑创建timm模型 <-----")
+
+            # 1. 创建一个 *不带* 预训练权重的“空”模型
+            #    将 `pretrained` 参数强制设置为 False，避免timm尝试联网
             self.vision_model = timm.create_model(
-                model_name, 
-                pretrained=pretrained,
+                model_name,
+                pretrained=False,  # 强制为 False
                 num_classes=0,  # 移除分类头
-                global_pool=''  # 移除全局池化
+                global_pool="",  # 移除全局池化
             )
-            
+
+            # 2. 如果原始调用要求使用预训练权重，我们从本地文件手动加载
+            if pretrained:
+                # 定义本地权重文件的路径。请确保下载的 .bin 文件在此路径
+                local_weights_path = "./pytorch_model.bin"
+
+                try:
+                    print(
+                        f"-----> [INFO] 正在从本地路径加载预训练权重: {local_weights_path}"
+                    )
+                    # 加载本地权重文件，使用 map_location='cpu' 避免GPU内存问题
+                    state_dict = torch.load(local_weights_path, map_location="cpu")
+
+                    # 有些timm模型保存的state_dict可能在'model'键下，做个兼容
+                    if "model" in state_dict:
+                        state_dict = state_dict["model"]
+
+                    # 加载权重到模型中
+                    # strict=False 可以在模型结构与权重文件有轻微不匹配（比如分类头）时依然成功加载
+                    self.vision_model.load_state_dict(state_dict, strict=False)
+                    print("-----> [SUCCESS] 本地预训练权重加载成功！")
+
+                except FileNotFoundError:
+                    print(f"!!!!!! [ERROR] 找不到本地权重文件: {local_weights_path}")
+                    print(
+                        f"!!!!!! [ERROR] 请确保已将下载的 pytorch_model.bin 文件放到项目根目录下。"
+                    )
+                except Exception as e:
+                    print(f"!!!!!! [ERROR] 加载本地权重时发生未知错误: {e}")
+            else:
+                print("-----> [INFO] 模型未加载预训练权重。")
+
+            # ======================= 结束修改 =======================
+
             # 获取特征维度
-            if hasattr(self.vision_model, 'embed_dim'):
+            if hasattr(self.vision_model, "embed_dim"):
                 hidden_dim = self.vision_model.embed_dim
-            elif hasattr(self.vision_model, 'num_features'):
+            elif hasattr(self.vision_model, "num_features"):
                 hidden_dim = self.vision_model.num_features
             else:
                 hidden_dim = 768  # ViT-Base默认维度
-                
+
         else:
             raise ValueError(f"不支持的模型: {model_name}")
-        
+
         # 冻结主干网络参数
         if freeze_backbone:
             for param in self.vision_model.parameters():
                 param.requires_grad = False
             print(f"已冻结{model_name}的主干网络参数")
-        
+
         # 投影层
         self.projection = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
             nn.Linear(hidden_dim, output_dim),
-            nn.Dropout(dropout_rate)
+            nn.Dropout(dropout_rate),
         )
-        
+
         # 初始化投影层权重
         self._init_projection_weights()
-        
+
         print(f"PNGSketchEncoder initialized:")
         print(f"  Model: {model_name}")
         print(f"  Pretrained: {pretrained}")
         print(f"  Freeze backbone: {freeze_backbone}")
         print(f"  Hidden dim: {hidden_dim}")
         print(f"  Output dim: {output_dim}")
-    
+
     def _init_projection_weights(self):
         """初始化投影层权重"""
         for module in self.projection.modules():
@@ -105,24 +151,24 @@ class PNGSketchEncoder(nn.Module):
                 nn.init.xavier_uniform_(module.weight)
                 if module.bias is not None:
                     nn.init.constant_(module.bias, 0)
-    
+
     def forward(self, sketch_images):
         """
         前向传播
-        
+
         Args:
             sketch_images: PNG草图张量 [batch_size, 3, 224, 224]
-            
+
         Returns:
             sketch_features: 草图特征 [batch_size, output_dim]
         """
         batch_size = sketch_images.size(0)
-        
+
         # 通过ViT模型获取特征
-        if hasattr(self.vision_model, 'forward_features'):
+        if hasattr(self.vision_model, "forward_features"):
             # timm模型的特征提取方法
             features = self.vision_model.forward_features(sketch_images)
-            
+
             # 获取CLS token特征或全局平均池化
             if features.dim() == 3:  # [batch_size, seq_len, hidden_dim]
                 # 使用CLS token（第一个token）
@@ -137,38 +183,38 @@ class PNGSketchEncoder(nn.Module):
             features = self.vision_model(sketch_images)
             if features.dim() > 2:
                 features = features.mean(dim=[-2, -1])
-        
+
         # 通过投影层
         sketch_features = self.projection(features)
-        
+
         # L2归一化
         sketch_features = nn.functional.normalize(sketch_features, p=2, dim=1)
-        
+
         return sketch_features
-    
+
     def get_trainable_parameters(self):
         """获取可训练参数"""
         trainable_params = []
         frozen_params = []
-        
+
         for name, param in self.named_parameters():
             if param.requires_grad:
                 trainable_params.append((name, param))
             else:
                 frozen_params.append((name, param))
-        
+
         return trainable_params, frozen_params
-    
+
     def get_parameter_count(self):
         """获取参数数量"""
         total_params = sum(p.numel() for p in self.parameters())
         trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
         frozen_params = total_params - trainable_params
-        
+
         return {
-            'total': total_params,
-            'trainable': trainable_params,
-            'frozen': frozen_params
+            "total": total_params,
+            "trainable": trainable_params,
+            "frozen": frozen_params,
         }
 
 
@@ -176,67 +222,70 @@ class PNGSketchEncoderWithAttention(PNGSketchEncoder):
     """
     带注意力机制的PNG草图编码器
     """
-    def __init__(self, 
-                 model_name='vit_base_patch16_224',
-                 pretrained=True,
-                 freeze_backbone=False,
-                 output_dim=512,
-                 dropout_rate=0.1,
-                 use_cross_attention=False):
-        super().__init__(model_name, pretrained, freeze_backbone, output_dim, dropout_rate)
-        
+
+    def __init__(
+        self,
+        model_name="vit_base_patch16_224",
+        pretrained=True,
+        freeze_backbone=False,
+        output_dim=512,
+        dropout_rate=0.1,
+        use_cross_attention=False,
+    ):
+        super().__init__(
+            model_name, pretrained, freeze_backbone, output_dim, dropout_rate
+        )
+
         self.use_cross_attention = use_cross_attention
-        
+
         if use_cross_attention:
             # 获取隐藏维度
-            if hasattr(self.vision_model, 'embed_dim'):
+            if hasattr(self.vision_model, "embed_dim"):
                 hidden_dim = self.vision_model.embed_dim
             else:
                 hidden_dim = 768
-            
+
             # 交叉注意力层
             self.cross_attention = nn.MultiheadAttention(
                 embed_dim=hidden_dim,
                 num_heads=8,
                 dropout=dropout_rate,
-                batch_first=True
+                batch_first=True,
             )
-            
+
             # 添加层归一化
             self.layer_norm = nn.LayerNorm(hidden_dim)
-    
+
     def forward(self, sketch_images, context_features=None):
         """
         前向传播（带可选的交叉注意力）
-        
+
         Args:
             sketch_images: PNG草图张量 [batch_size, 3, 224, 224]
             context_features: 上下文特征（用于交叉注意力） [batch_size, seq_len, hidden_dim]
-            
+
         Returns:
             sketch_features: 草图特征 [batch_size, output_dim]
         """
         batch_size = sketch_images.size(0)
-        
+
         # 通过ViT模型获取特征
-        if hasattr(self.vision_model, 'forward_features'):
+        if hasattr(self.vision_model, "forward_features"):
             features = self.vision_model.forward_features(sketch_images)
         else:
             features = self.vision_model(sketch_images)
-        
+
         # 如果启用交叉注意力且提供了上下文特征
         if self.use_cross_attention and context_features is not None:
             if features.dim() == 3:  # [batch_size, seq_len, hidden_dim]
                 # 使用交叉注意力
                 attended_features, _ = self.cross_attention(
-                    query=features,
-                    key=context_features,
-                    value=context_features
+                    query=features, key=context_features, value=context_features
                 )
-                
+
                 # 残差连接和层归一化
                 features = self.layer_norm(features + attended_features)
-                
+
                 # 使用CLS token
                 features = features[:, 0, :]
             else:
@@ -249,25 +298,27 @@ class PNGSketchEncoderWithAttention(PNGSketchEncoder):
                 features = features[:, 0, :]  # 使用CLS token
             elif features.dim() > 2:
                 features = features.mean(dim=[-2, -1])
-        
+
         # 通过投影层
         sketch_features = self.projection(features)
-        
+
         # L2归一化
         sketch_features = nn.functional.normalize(sketch_features, p=2, dim=1)
-        
+
         return sketch_features
 
 
-def create_sketch_encoder(model_name,
-                            output_dim=512,
-                            pretrained=False,
-                            freeze_backbone=False,
-                            dropout_rate=0.1,
-                            use_attention=False):
+def create_sketch_encoder(
+    model_name,
+    output_dim=512,
+    pretrained=False,
+    freeze_backbone=False,
+    dropout_rate=0.1,
+    use_attention=False,
+):
     """
     创建PNG草图编码器
-    
+
     Args:
         model_name: 预训练模型名称
         pretrained: 是否使用预训练权重
@@ -275,14 +326,14 @@ def create_sketch_encoder(model_name,
         output_dim: 输出特征维度
         dropout_rate: Dropout率
         use_attention: 是否使用注意力机制
-        
+
     Returns:
         encoder: PNG草图编码器
     """
 
-    if model_name == 'vit':
-        print('---- create IMAGE sketch encoder ----')
-        real_name = 'vit_base_patch16_224'
+    if model_name == "vit":
+        print("---- create IMAGE sketch encoder ----")
+        real_name = "vit_base_patch16_224"
 
         if use_attention:
             encoder = PNGSketchEncoderWithAttention(
@@ -291,7 +342,7 @@ def create_sketch_encoder(model_name,
                 freeze_backbone=freeze_backbone,
                 output_dim=output_dim,
                 dropout_rate=dropout_rate,
-                use_cross_attention=True
+                use_cross_attention=True,
             )
         else:
             encoder = PNGSketchEncoder(
@@ -299,19 +350,19 @@ def create_sketch_encoder(model_name,
                 pretrained=pretrained,
                 freeze_backbone=freeze_backbone,
                 output_dim=output_dim,
-                dropout_rate=dropout_rate
+                dropout_rate=dropout_rate,
             )
 
-    elif model_name == 'lstm':
-        print('---- create VECTOR sketch encoder ----')
+    elif model_name == "lstm":
+        print("---- create VECTOR sketch encoder ----")
         encoder = lstm.BiLSTMEncoder(embed_dim=output_dim)
 
-    elif model_name == 'sdgraph':
-        print('---- create VECTOR sketch encoder ----')
+    elif model_name == "sdgraph":
+        print("---- create VECTOR sketch encoder ----")
         encoder = sdgraph_sel.SDGraphEmbedding(embed_dim=output_dim)
 
     else:
-        raise TypeError('unsupported encoder name')
+        raise TypeError("unsupported encoder name")
 
     return encoder
 
@@ -324,32 +375,32 @@ def get_sketch_info(sketch_model: str):
     return sketch_format
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # 测试PNG草图编码器
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"使用设备: {device}")
-    
+
     # 创建编码器
     encoder = create_sketch_encoder(
-        model_name='vit_base_patch16_224',
+        model_name="vit_base_patch16_224",
         pretrained=True,
         freeze_backbone=True,
-        output_dim=512
+        output_dim=512,
     )
     encoder.to(device)
-    
+
     # 测试前向传播
     batch_size = 4
     test_sketches = torch.randn(batch_size, 3, 224, 224).to(device)
-    
+
     with torch.no_grad():
         features = encoder(test_sketches)
-        
+
     print(f"\\n测试结果:")
     print(f"输入形状: {test_sketches.shape}")
     print(f"输出形状: {features.shape}")
     print(f"特征范数: {torch.norm(features, dim=1)}")
-    
+
     # 参数统计
     param_counts = encoder.get_parameter_count()
     print(f"\\n参数统计:")

@@ -2,6 +2,7 @@
 PNG草图-图像数据集加载器
 用于加载PNG格式的草图和对应的图片进行训练
 """
+
 import os
 import pickle
 import torch
@@ -17,27 +18,27 @@ from utils import utils
 
 # sketchy 数据集的测试类别，在 zero-shot 任务中
 sketchy_evaluate = [
-    'bat',
-    'cabin',
-    'cow',
-    'dolphin',
-    'door',
-    'giraffe',
-    'helicopter',
-    'mouse',
-    'pear',
-    'raccoon',
-    'rhinoceros',
-    'saw',
-    'scissors',
-    'seagull',
-    'skyscraper',
-    'songbird',
-    'sword',
-    'tree',
-    'wheelchair',
-    'windmill',
-    'window'
+    "bat",
+    "cabin",
+    "cow",
+    "dolphin",
+    "door",
+    "giraffe",
+    "helicopter",
+    "mouse",
+    "pear",
+    "raccoon",
+    "rhinoceros",
+    "saw",
+    "scissors",
+    "seagull",
+    "skyscraper",
+    "songbird",
+    "sword",
+    "tree",
+    "wheelchair",
+    "windmill",
+    "window",
 ]
 
 
@@ -45,21 +46,23 @@ class SketchImageDataset(Dataset):
     """
     PNG草图-图像配对数据集
     """
-    def __init__(self,
-                 root,
-                 mode,
-                 fixed_split_path,
-                 vec_sketch_rep,  # [S5, STK_11_32]
-                 sketch_image_subdirs,  # [0]: vector_sketch, [1]: image_sketch, [2]: photo
-                 sketch_transform=None,
-                 image_transform=None,
-                 sketch_format='vector',  # ['vector', 'image']
-                 vec_seq_length=11*32,
-                 is_back_image_only=False
-                 ):
+
+    def __init__(
+        self,
+        root,
+        mode,
+        fixed_split_path,
+        vec_sketch_rep,  # [S5, STK_11_32]
+        sketch_image_subdirs,  # [0]: vector_sketch, [1]: image_sketch, [2]: photo
+        sketch_transform=None,
+        image_transform=None,
+        sketch_format="vector",  # ['vector', 'image']
+        vec_seq_length=11 * 32,
+        is_back_image_only=False,
+    ):
         """
         初始化数据集
-        
+
         Args:
             mode: 'train' 或 'test'
             fixed_split_path: 固定数据集划分文件路径
@@ -68,12 +71,12 @@ class SketchImageDataset(Dataset):
             is_back_image_only: 是否仅返回图像，用于一张图片对应多个草图时，进行测试时不返回重复的图片
 
         """
-        assert mode in ('train', 'test')
+        assert mode in ("train", "test")
 
         print(f"PNGSketchImageDataset initialized with:")
         print(f"  Mode: {mode}")
         print(f"  Fixed split path: {fixed_split_path}")
-        
+
         self.mode = mode
         self.fixed_split_path = fixed_split_path
         self.root = root
@@ -81,87 +84,95 @@ class SketchImageDataset(Dataset):
         self.is_back_image_only = is_back_image_only
 
         # 默认变换
-        self.sketch_transform = sketch_transform or transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
-        
-        self.image_transform = image_transform or transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
+        self.sketch_transform = sketch_transform or transforms.Compose(
+            [
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                ),
+            ]
+        )
+
+        self.image_transform = image_transform or transforms.Compose(
+            [
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                ),
+            ]
+        )
 
         self.image_subdir = sketch_image_subdirs[2]
-        if self.sketch_format == 'vector':
+        if self.sketch_format == "vector":
             self.sketch_subdir = sketch_image_subdirs[0]
 
-            if vec_sketch_rep == 'S5':
+            if vec_sketch_rep == "S5":
                 self.sketch_loader = partial(
                     utils.s3_file_to_s5,
                     max_length=vec_seq_length,
-                    coor_mode='REL',
+                    coor_mode="REL",
                     is_shuffle_stroke=False,
-                    is_back_mask=False
+                    is_back_mask=False,
                 )
-            elif 'STK' in vec_sketch_rep:
+            elif "STK" in vec_sketch_rep:
                 self.sketch_loader = partial(
-                    utils.load_stk_sketch,
-                    stk_name=vec_sketch_rep
+                    utils.load_stk_sketch, stk_name=vec_sketch_rep
                 )
             else:
-                raise TypeError('error vector sketch type')
+                raise TypeError("error vector sketch type")
 
         else:
             self.sketch_subdir = sketch_image_subdirs[1]
             self.sketch_loader = partial(
-                utils.image_loader,
-                image_transform=self.sketch_transform
+                utils.image_loader, image_transform=self.sketch_transform
             )
-        
+
         # 加载固定的数据集划分
         self._load_fixed_split()
         # print(self.mode + f' pairs: {len(self)}')
-        
+
     def _load_fixed_split(self):
         """加载固定的数据集划分"""
         print(f"Loading fixed dataset split from: {self.fixed_split_path}")
-        
+
         if not os.path.exists(self.fixed_split_path):
-            raise FileNotFoundError(f"固定数据集划分文件不存在: {self.fixed_split_path}")
-            
-        with open(self.fixed_split_path, 'rb') as f:
+            raise FileNotFoundError(
+                f"固定数据集划分文件不存在: {self.fixed_split_path}"
+            )
+
+        with open(self.fixed_split_path, "rb") as f:
             dataset_info = pickle.load(f)
-        
+
         # 根据模式选择数据
-        if self.mode == 'train':
-            self.data_pairs = dataset_info['train_pairs']
-        elif self.mode == 'test':
-            self.data_pairs = dataset_info['test_pairs']
+        if self.mode == "train":
+            self.data_pairs = dataset_info["train_pairs"]
+        elif self.mode == "test":
+            self.data_pairs = dataset_info["test_pairs"]
         else:
             raise ValueError(f"不支持的模式: {self.mode}")
-        
-        self.categories = dataset_info['common_categories']
-        self.images_set = dataset_info['images_set']
+
+        self.categories = dataset_info["common_categories"]
+        self.images_set = dataset_info["images_set"]
         self.category_to_idx = {cat: idx for idx, cat in enumerate(self.categories)}
-        
+
         print(f"Loaded fixed split: {len(self.data_pairs)} pairs")
         print(f"Total categories: {len(self.categories)}")
-        
+
     def __len__(self):
         if self.is_back_image_only:
             return len(self.images_set)
         else:
             return len(self.data_pairs)
-    
+
     def __getitem__(self, idx):
         """
         获取一个数据样本
-        
+
         Returns:
             sketch: 预处理后的草图张量 [3, 224, 224]
-            image: 预处理后的图像张量 [3, 224, 224]  
+            image: 预处理后的图像张量 [3, 224, 224]
             category_idx: 类别索引
             category_name: 类别名称
         """
@@ -194,7 +205,7 @@ class SketchImageDataset(Dataset):
                 # 获取类别索引
                 category_idx = self.category_to_idx[category]
 
-                return sketch, image, category_idx, category
+                return idx, sketch, image, category_idx, category
                 # return idx, sketch, image
 
             except Exception as e:
@@ -220,9 +231,9 @@ class SketchImageDataset(Dataset):
     def get_category_info(self):
         """获取类别信息"""
         return {
-            'categories': self.categories,
-            'category_to_idx': self.category_to_idx,
-            'num_categories': len(self.categories)
+            "categories": self.categories,
+            "category_to_idx": self.category_to_idx,
+            "num_categories": len(self.categories),
         }
 
     def next(self, idx):
@@ -231,22 +242,22 @@ class SketchImageDataset(Dataset):
         else:
             idx += 1
         return idx
-    
+
     def get_data_info(self):
         """获取数据集信息"""
         category_counts = {}
         for _, _, category in self.data_pairs:
             category_counts[category] = category_counts.get(category, 0) + 1
-            
+
         return {
-            'mode': self.mode,
-            'total_pairs': len(self.data_pairs),
-            'num_categories': len(self.categories),
-            'category_counts': category_counts
+            "mode": self.mode,
+            "total_pairs": len(self.data_pairs),
+            "num_categories": len(self.categories),
+            "category_counts": category_counts,
         }
 
     def find_image_idx(self, category, filename):
-        filename = filename.split('-')[0] + '.jpg'
+        filename = filename.split("-")[0] + ".jpg"
         image_path = self.get_image_path(category, filename)
         img_index = self.images_set.index((image_path, category))
 
@@ -279,7 +290,7 @@ def get_subdirs(dir_path):
     return dir_names
 
 
-def get_allfiles(dir_path, suffix='txt', filename_only=False):
+def get_allfiles(dir_path, suffix="txt", filename_only=False):
     """
     获取dir_path下的全部文件路径
     :param dir_path:
@@ -293,7 +304,7 @@ def get_allfiles(dir_path, suffix='txt', filename_only=False):
         for file in files:
 
             if suffix is not None:
-                if file.split('.')[-1] == suffix:
+                if file.split(".")[-1] == suffix:
                     if filename_only:
                         current_filepath = file
                     else:
@@ -310,18 +321,19 @@ def get_allfiles(dir_path, suffix='txt', filename_only=False):
     return filepath_all
 
 
-def create_sketch_image_dataloaders(batch_size,
-                                    num_workers,
-                                    fixed_split_path,
-                                    root,
-                                    sketch_format,
-                                    vec_sketch_rep,
-                                    sketch_image_subdirs,
-                                    is_back_dataset=False
-                                    ):
+def create_sketch_image_dataloaders(
+    batch_size,
+    num_workers,
+    fixed_split_path,
+    root,
+    sketch_format,
+    vec_sketch_rep,
+    sketch_image_subdirs,
+    is_back_dataset=False,
+):
     """
     创建训练和测试数据加载器
-    
+
     Args:
         batch_size: 批次大小
         num_workers: 数据加载进程数
@@ -331,59 +343,67 @@ def create_sketch_image_dataloaders(batch_size,
         vec_sketch_rep: 矢量草图格式 [S5, STK_11_32]
         sketch_image_subdirs:
         is_back_dataset: 是否返回数据集
-        
+
     Returns:
         train_loader, test_loader, dataset_info
     """
-    
+
     # 数据增强变换
-    train_sketch_transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomRotation(degrees=10),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
-    
-    train_image_transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomRotation(degrees=10),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
-    
-    test_transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
-    
+    train_sketch_transform = transforms.Compose(
+        [
+            transforms.Resize((224, 224)),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomRotation(degrees=10),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
+    )
+
+    train_image_transform = transforms.Compose(
+        [
+            transforms.Resize((224, 224)),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomRotation(degrees=10),
+            transforms.ColorJitter(
+                brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1
+            ),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
+    )
+
+    test_transform = transforms.Compose(
+        [
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
+    )
+
     # 创建数据集
     train_dataset = SketchImageDataset(
-        mode='train',
+        mode="train",
         fixed_split_path=fixed_split_path,
         sketch_transform=train_sketch_transform,
         image_transform=train_image_transform,
         root=root,
         sketch_format=sketch_format,
         vec_sketch_rep=vec_sketch_rep,
-        sketch_image_subdirs=sketch_image_subdirs
+        sketch_image_subdirs=sketch_image_subdirs,
     )
 
     test_dataset = SketchImageDataset(
-        mode='test',
+        mode="test",
         fixed_split_path=fixed_split_path,
         sketch_transform=test_transform,
         image_transform=test_transform,
         root=root,
         sketch_format=sketch_format,
         vec_sketch_rep=vec_sketch_rep,
-        sketch_image_subdirs=sketch_image_subdirs
+        sketch_image_subdirs=sketch_image_subdirs,
     )
-    
+
     # 创建数据加载器
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
@@ -391,22 +411,22 @@ def create_sketch_image_dataloaders(batch_size,
         shuffle=True,
         num_workers=num_workers,
         pin_memory=True,
-        drop_last=True
+        drop_last=True,
     )
-    
+
     test_loader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
-        pin_memory=True
+        pin_memory=True,
     )
-    
+
     # 获取数据集信息
     dataset_info = {
-        'train_info': train_dataset.get_data_info(),
-        'test_info': test_dataset.get_data_info(),
-        'category_info': train_dataset.get_category_info()
+        "train_info": train_dataset.get_data_info(),
+        "test_info": test_dataset.get_data_info(),
+        "category_info": train_dataset.get_category_info(),
     }
 
     if is_back_dataset:
@@ -592,17 +612,17 @@ def create_sketch_image_dataloaders(batch_size,
 
 
 def create_dataset_split_file(
-        save_root,
-        sketch_root,
-        image_root,
-        sketch_image_suffix,  # ('txt', 'jpg') or ('png', 'jpg')
-        train_split=0.8,
-        random_seed=42,
-        is_multi_pair=False,
-        split_mode='ZS-SBIR',  # ['SBIR', 'ZS-SBIR'],
-        full_train=False
-        # 'SBIR': 使用所有类别，每个类别内取出一定数量用作测试。
-        # 'ZS-SBIR': 一部分类别全部用于训练，另一部分类别全部用于测试，即训练类别和测试类别不重合
+    save_root,
+    sketch_root,
+    image_root,
+    sketch_image_suffix,  # ('txt', 'jpg') or ('png', 'jpg')
+    train_split=0.8,
+    random_seed=42,
+    is_multi_pair=False,
+    split_mode="ZS-SBIR",  # ['SBIR', 'ZS-SBIR'],
+    full_train=False,
+    # 'SBIR': 使用所有类别，每个类别内取出一定数量用作测试。
+    # 'ZS-SBIR': 一部分类别全部用于训练，另一部分类别全部用于测试，即训练类别和测试类别不重合
 ):
     """
     创建PNG草图的固定数据集划分并保存到文件
@@ -617,7 +637,7 @@ def create_dataset_split_file(
         is_multi_pair: 是否一张图片对应多个草图
         split_mode: 检索任务类别
     """
-    assert split_mode in ['SBIR', 'ZS-SBIR']
+    assert split_mode in ["SBIR", "ZS-SBIR"]
     print("开始创建PNG草图的固定数据集划分...")
     print(f"草图路径: {sketch_root}")
     print(f"图片路径: {image_root}")
@@ -636,7 +656,7 @@ def create_dataset_split_file(
     common_categories = list(set(sketch_categories) & set(image_categories))
     common_categories.sort()
 
-    print(f'找到 {len(common_categories)} 个共同类别')
+    print(f"找到 {len(common_categories)} 个共同类别")
 
     all_data_pairs = []
     images_set = []
@@ -647,10 +667,16 @@ def create_dataset_split_file(
         image_category_path = os.path.join(image_root, category)
 
         # 获取该类别下的所有草图文件和图片文件
-        sketch_files = get_allfiles(sketch_category_path, sketch_image_suffix[0], filename_only=True)
-        image_files = get_allfiles(image_category_path, sketch_image_suffix[1], filename_only=True)
+        sketch_files = get_allfiles(
+            sketch_category_path, sketch_image_suffix[0], filename_only=True
+        )
+        image_files = get_allfiles(
+            image_category_path, sketch_image_suffix[1], filename_only=True
+        )
 
-        print(f"{category}: 找到 {len(sketch_files)} 个{sketch_image_suffix[0].upper()}草图, {len(image_files)} 个{sketch_image_suffix[1].upper()}图片")
+        print(
+            f"{category}: 找到 {len(sketch_files)} 个{sketch_image_suffix[0].upper()}草图, {len(image_files)} 个{sketch_image_suffix[1].upper()}图片"
+        )
 
         # 构建图片实例字典和对应的草图列表
         # id 即不带路径也后缀的图片文件名，每个id和一个具体图片文件一一对应
@@ -665,7 +691,9 @@ def create_dataset_split_file(
             # 获取图片文件名，不带路径与后缀
             instance_id = os.path.splitext(image_file)[0]
 
-            relative_image_path = os.path.join(image_category_path, image_file)  # 仅带类别和文件名的路径，例如 cat/aaa.jpg
+            relative_image_path = os.path.join(
+                image_category_path, image_file
+            )  # 仅带类别和文件名的路径，例如 cat/aaa.jpg
             imgid_name[instance_id] = relative_image_path
             skhid_name[instance_id] = []
 
@@ -678,9 +706,9 @@ def create_dataset_split_file(
             # 首先尝试直接匹配
             if sketch_base_name in imgid_name:
                 skhid_name[sketch_base_name].append(sketch_file)
-            elif '-' in sketch_base_name:
+            elif "-" in sketch_base_name:
                 # 如果有'-'分隔符，尝试取前面部分作为实例ID
-                instance_id = sketch_base_name.rsplit('-', 1)[0]
+                instance_id = sketch_base_name.rsplit("-", 1)[0]
                 if instance_id in imgid_name:
                     skhid_name[instance_id].append(sketch_file)
 
@@ -699,7 +727,9 @@ def create_dataset_split_file(
                 # 一张图片对应一张草图
                 else:
                     # 使用确定性的选择方式（基于instance_id hash来选择）
-                    sketch_idx = hash(category + instance_id + str(random_seed)) % len(sketch_list)
+                    sketch_idx = hash(category + instance_id + str(random_seed)) % len(
+                        sketch_list
+                    )
                     sketch_name = sketch_list[sketch_idx]
                     category_pairs.append((sketch_name, image_name, category))
 
@@ -725,7 +755,7 @@ def create_dataset_split_file(
     test_stats = {}
 
     # zero-shot 检索直接将类别划分为训练类别和测试类别
-    if split_mode == 'ZS-SBIR':
+    if split_mode == "ZS-SBIR":
         for category, pairs in category_pairs_dict.items():
 
             if full_train:
@@ -787,21 +817,21 @@ def create_dataset_split_file(
 
     # 保存数据集划分
     dataset_info = {
-        'train_pairs': train_pairs,
-        'test_pairs': test_pairs,
-        'images_set': images_set,
-        'category_stats': category_stats,
-        'train_stats': train_stats,
-        'test_stats': test_stats,
-        'total_categories': len(common_categories),
-        'train_split': train_split,
-        'random_seed': random_seed,
-        'common_categories': common_categories,
-        'data_type': 'png_sketch'  # 标识这是PNG草图数据集
+        "train_pairs": train_pairs,
+        "test_pairs": test_pairs,
+        "images_set": images_set,
+        "category_stats": category_stats,
+        "train_stats": train_stats,
+        "test_stats": test_stats,
+        "total_categories": len(common_categories),
+        "train_split": train_split,
+        "random_seed": random_seed,
+        "common_categories": common_categories,
+        "data_type": "png_sketch",  # 标识这是PNG草图数据集
     }
 
     # 保存为pickle文件
-    with open(save_root, 'wb') as f:
+    with open(save_root, "wb") as f:
         pickle.dump(dataset_info, f)
 
     print(f"PNG草图数据集划分已保存到: {save_root}")
@@ -816,14 +846,13 @@ def get_split_file_name(sketch_format: str, pair_mode: str, task: str):
     pair_mode: ('multi_pair', 'single_pair')
     task: ('sbir', 'zs_sbir')
     """
-    assert sketch_format in ('vector', 'image')
-    assert pair_mode in ('multi_pair', 'single_pair')
-    assert task in ('sbir', 'zs_sbir')
+    assert sketch_format in ("vector", "image")
+    assert pair_mode in ("multi_pair", "single_pair")
+    assert task in ("sbir", "zs_sbir")
 
-    split_file = f'./data/fixed_splits/dataset_split_{pair_mode}_{task}_{sketch_format}_sketch.pkl'
+    split_file = f"./data/fixed_splits/dataset_split_{pair_mode}_{task}_{sketch_format}_sketch.pkl"
     return split_file
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pass
-

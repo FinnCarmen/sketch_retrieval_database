@@ -14,24 +14,25 @@ from utils import loss_func
 class SBIRTrainer:
     """PNG草图-图像对齐训练器"""
 
-    def __init__(self,
-                 model,
-                 train_set,
-                 test_set,
-                 train_loader,
-                 test_loader,
-                 device,
-                 check_point,
-                 logger,
-                 dataset_info,
-                 log_dir,
-                 retrieval_mode,  # ['cl', 'fg']
-                 learning_rate=1e-4,
-                 weight_decay=1e-4,
-                 max_epochs=50,
-                 stop_val=100
-                 ):
-        assert retrieval_mode in ('cl', 'fg')
+    def __init__(
+        self,
+        model,
+        train_set,
+        test_set,
+        train_loader,
+        test_loader,
+        device,
+        check_point,
+        logger,
+        dataset_info,
+        log_dir,
+        retrieval_mode,  # ['cl', 'fg']
+        learning_rate=1e-4,
+        weight_decay=1e-4,
+        max_epochs=50,
+        stop_val=100,
+    ):
+        assert retrieval_mode in ("cl", "fg")
 
         self.model = model
         self.train_set = train_set
@@ -46,7 +47,7 @@ class SBIRTrainer:
         self.log_dir = log_dir
         self.stop_val = stop_val
 
-        self.check_point_best = os.path.splitext(check_point)[0] + '_best.pth'
+        self.check_point_best = os.path.splitext(check_point)[0] + "_best.pth"
 
         # 创建输出目录
         os.makedirs(os.path.dirname(self.check_point), exist_ok=True)
@@ -57,12 +58,14 @@ class SBIRTrainer:
             lr=learning_rate,
             weight_decay=weight_decay,
             betas=(0.9, 0.98),
-            eps=1e-6
+            eps=1e-6,
         )
-        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=10, gamma=0.9)
+        self.scheduler = torch.optim.lr_scheduler.StepLR(
+            self.optimizer, step_size=10, gamma=0.9
+        )
 
         # 损失函数
-        if retrieval_mode == 'cl':
+        if retrieval_mode == "cl":
             self.criterion = loss_func.contrastive_loss_cl_zs_sbir
 
         else:
@@ -71,7 +74,7 @@ class SBIRTrainer:
 
         # 训练状态
         self.current_epoch = 0
-        self.best_loss = float('inf')
+        self.best_loss = float("inf")
         self.train_losses = []
         self.test_losses = []
 
@@ -84,12 +87,23 @@ class SBIRTrainer:
         """
         训练一个epoch
         """
-        self.model.train()
+
         total_loss = 0.0
         num_batches = len(self.train_loader)
-        progress_bar = tqdm(self.train_loader, desc=f"Epoch {self.current_epoch + 1}/{self.max_epochs}")
+        progress_bar = tqdm(
+            self.train_loader, desc=f"Epoch {self.current_epoch + 1}/{self.max_epochs}"
+        )
+        idxes = []
 
-        for batch_idx, (sketches, images, category_indices, category_names) in enumerate(progress_bar):
+        self.model.eval()
+
+        for batch_idx, (
+            idx,
+            sketches,
+            images,
+            category_indices,
+            category_names,
+        ) in enumerate(progress_bar):
             # 移动数据到设备
             sketches = sketches.to(self.device)
             images = images.to(self.device)
@@ -102,28 +116,11 @@ class SBIRTrainer:
             sketch_features, image_features, logit_scale = self.model(sketches, images)
 
             # 计算损失
-            loss = self.criterion(sketch_features, image_features, category_indices, logit_scale)
 
-            # 反向传播
-            loss.backward()
+        sketch_path, image_path = self.train_set.get_data_path(idx)
 
-            # 梯度裁剪
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-
-            # 更新参数
-            self.optimizer.step()
-
-            # 累计损失
-            total_loss += loss.item()
-
-            # 更新进度条
-            progress_bar.set_postfix({
-                'Loss': f"{loss.item():.4f}",
-                'Avg Loss': f"{total_loss / (batch_idx + 1):.4f}",
-                'LR': f"{self.optimizer.param_groups[0]['lr']:.6f}",
-                'Temp': f"{logit_scale.item():.4f}"
-            })
         self.scheduler.step()
+        exit(0)
 
         avg_loss = total_loss / num_batches
         return avg_loss
@@ -143,13 +140,17 @@ class SBIRTrainer:
         total_loss = 0.0
         with torch.no_grad():
             # 提取草图特征
-            for sketches, images, category_indices, category_names in tqdm(self.test_loader, desc="Validating"):
+            for sketches, images, category_indices, category_names in tqdm(
+                self.test_loader, desc="Validating"
+            ):
                 sketches = sketches.to(self.device)
                 images = images.to(self.device)
                 category_indices = category_indices.to(self.device)
 
                 sketch_feat, image_feat, logit_scale = self.model(sketches, images)
-                loss = self.criterion(sketch_feat, image_feat, category_indices, logit_scale)
+                loss = self.criterion(
+                    sketch_feat, image_feat, category_indices, logit_scale
+                )
                 total_loss += loss.item()
 
                 sketch_features.append(sketch_feat.cpu())
@@ -179,7 +180,7 @@ class SBIRTrainer:
         print(f"mAP_all: {metrics['mAP_all']:.4f}")
 
         # 按类别评估
-        categories = self.dataset_info['category_info']['categories']
+        categories = self.dataset_info["category_info"]["categories"]
         category_metrics = evaluate_by_category(
             similarity_matrix, class_labels, sketch_categories, categories
         )
@@ -187,35 +188,54 @@ class SBIRTrainer:
         print(f"评估 {len(categories)} 个类别的性能...")
 
         # 显示部分类别结果
-        sorted_categories = sorted(category_metrics.items(),
-                                   key=lambda x: x[1]['accuracy'], reverse=True)
+        sorted_categories = sorted(
+            category_metrics.items(), key=lambda x: x[1]["accuracy"], reverse=True
+        )
 
         for i, (category, cat_metrics) in enumerate(sorted_categories[:10]):
-            accuracy = cat_metrics['accuracy']
-            num_samples = cat_metrics['num_samples']
-            correct = cat_metrics['correct']
+            accuracy = cat_metrics["accuracy"]
+            num_samples = cat_metrics["num_samples"]
+            correct = cat_metrics["correct"]
             print(f"  {category}: {correct}/{num_samples} = {accuracy:.4f}")
 
         # 找到最佳和最差类别
         if category_metrics:
-            best_category = max(category_metrics.items(), key=lambda x: x[1]['accuracy'])
-            worst_category = min(category_metrics.items(), key=lambda x: x[1]['accuracy'])
+            best_category = max(
+                category_metrics.items(), key=lambda x: x[1]["accuracy"]
+            )
+            worst_category = min(
+                category_metrics.items(), key=lambda x: x[1]["accuracy"]
+            )
 
             print(f"最佳类别: {best_category[0]} ({best_category[1]['accuracy']:.4f})")
-            print(f"最差类别: {worst_category[0]} ({worst_category[1]['accuracy']:.4f})")
+            print(
+                f"最差类别: {worst_category[0]} ({worst_category[1]['accuracy']:.4f})"
+            )
 
             # 统计类别分布
-            num_good = sum(1 for cat_metrics in category_metrics.values()
-                           if cat_metrics['accuracy'] > 0)
-            num_zero = sum(1 for cat_metrics in category_metrics.values()
-                           if cat_metrics['accuracy'] == 0)
+            num_good = sum(
+                1
+                for cat_metrics in category_metrics.values()
+                if cat_metrics["accuracy"] > 0
+            )
+            num_zero = sum(
+                1
+                for cat_metrics in category_metrics.values()
+                if cat_metrics["accuracy"] == 0
+            )
 
-            print(f"类别统计: 总数={len(category_metrics)}, 准确率>0={num_good}, 准确率=0={num_zero}")
+            print(
+                f"类别统计: 总数={len(category_metrics)}, 准确率>0={num_good}, 准确率=0={num_zero}"
+            )
 
-        map_200, prec_200 = map_and_precision_at_k(sketch_features, image_features, class_labels)
+        map_200, prec_200 = map_and_precision_at_k(
+            sketch_features, image_features, class_labels
+        )
         acc_1, acc_5 = compute_topk_accuracy(sketch_features, image_features)
 
-        print(f'---mAP@200: {map_200:.4f}, Precision@200: {prec_200:.4f}, Acc@1: {acc_1:.4f}, Acc@5: {acc_5:.4f}')
+        print(
+            f"---mAP@200: {map_200:.4f}, Precision@200: {prec_200:.4f}, Acc@1: {acc_1:.4f}, Acc@5: {acc_5:.4f}"
+        )
 
         test_loss = total_loss / len(self.test_loader)
         return test_loss, map_200, prec_200, acc_1, acc_5
@@ -249,8 +269,10 @@ class SBIRTrainer:
         image_features = torch.cat(image_features, dim=0)
         indexes = torch.cat(indexes, dim=0)
 
-        accs, acc_1_idxes, acc_5_idxes = compute_topk_accuracy_with_file(sketch_features, image_features, indexes)
-        print(f'--- Acc@1: {accs[0]:.4f}, Acc@5: {accs[1]:.4f}')
+        accs, acc_1_idxes, acc_5_idxes = compute_topk_accuracy_with_file(
+            sketch_features, image_features, indexes
+        )
+        print(f"--- Acc@1: {accs[0]:.4f}, Acc@5: {accs[1]:.4f}")
 
         return acc_1_idxes, acc_5_idxes
 
@@ -266,7 +288,9 @@ class SBIRTrainer:
 
         with torch.no_grad():
             # 提取草图特征
-            for sketches, images, category_indices, category_names in tqdm(self.test_loader, desc="Validating"):
+            for sketches, images, category_indices, category_names in tqdm(
+                self.test_loader, desc="Validating"
+            ):
                 sketches = sketches.to(self.device)
                 category_indices = category_indices.long()
 
@@ -287,13 +311,13 @@ class SBIRTrainer:
         """保存模型检查点"""
 
         checkpoint = {
-            'epoch': self.current_epoch + 1,
-            'model_state_dict': self.model.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-            'scheduler_state_dict': self.scheduler.state_dict(),
-            'best_loss': self.best_loss,
-            'train_losses': self.train_losses,
-            'test_losses': self.test_losses
+            "epoch": self.current_epoch + 1,
+            "model_state_dict": self.model.state_dict(),
+            "optimizer_state_dict": self.optimizer.state_dict(),
+            "scheduler_state_dict": self.scheduler.state_dict(),
+            "best_loss": self.best_loss,
+            "train_losses": self.train_losses,
+            "test_losses": self.test_losses,
         }
 
         torch.save(checkpoint, self.check_point)
@@ -309,19 +333,19 @@ class SBIRTrainer:
         try:
             checkpoint = torch.load(checkpoint_path, map_location=self.device)
 
-            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.model.load_state_dict(checkpoint["model_state_dict"])
             # self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             # self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-            self.current_epoch = checkpoint['epoch']
-            self.best_loss = checkpoint['best_loss']
-            self.train_losses = checkpoint['train_losses']
-            self.test_losses = checkpoint['test_losses']
+            self.current_epoch = checkpoint["epoch"]
+            self.best_loss = checkpoint["best_loss"]
+            self.train_losses = checkpoint["train_losses"]
+            self.test_losses = checkpoint["test_losses"]
 
             print(f"从检查点恢复训练: {checkpoint_path}")
             return True
 
         except:
-            print(f'从如下文件加载检查点失败，从零开始训练：{checkpoint_path}')
+            print(f"从如下文件加载检查点失败，从零开始训练：{checkpoint_path}")
             return False
 
     def train(self):
@@ -339,8 +363,10 @@ class SBIRTrainer:
             test_loss, map_200, prec_200, acc_1, acc_5 = self.validate_epoch()
             self.test_losses.append(test_loss)
 
-            current_lr = self.optimizer.param_groups[0]['lr']
-            print(f'epoch {epoch + 1}/{self.max_epochs}: train_loss: {train_loss:.4f}, test_loss: {test_loss:.4f}, lr: {current_lr:.6f}')
+            current_lr = self.optimizer.param_groups[0]["lr"]
+            print(
+                f"epoch {epoch + 1}/{self.max_epochs}: train_loss: {train_loss:.4f}, test_loss: {test_loss:.4f}, lr: {current_lr:.6f}"
+            )
 
             # 检查是否是最佳模型
             is_best = test_loss < self.best_loss
@@ -351,8 +377,8 @@ class SBIRTrainer:
             # 保存检查点
             self.save_checkpoint(is_best=is_best)
 
-            log_str = f'epoch {epoch + 1}/{self.max_epochs} train_loss {train_loss} test_loss {test_loss} map_200 {map_200} prec_200 {prec_200} acc_1 {acc_1} acc_5 {acc_5}'
-            log_str = log_str.replace(' ', '\t')
+            log_str = f"epoch {epoch + 1}/{self.max_epochs} train_loss {train_loss} test_loss {test_loss} map_200 {map_200} prec_200 {prec_200} acc_1 {acc_1} acc_5 {acc_5}"
+            log_str = log_str.replace(" ", "\t")
             self.logger.info(log_str)
 
             # if map_200 < self.stop_val:
@@ -365,15 +391,17 @@ class SBIRTrainer:
     def save_training_history(self):
         """保存训练历史"""
         history = {
-            'train_losses': self.train_losses,
-            'test_losses': self.test_losses,
-            'best_loss': self.best_loss,
-            'epochs_trained': len(self.train_losses),
-            'final_lr': self.optimizer.param_groups[0]['lr']
+            "train_losses": self.train_losses,
+            "test_losses": self.test_losses,
+            "best_loss": self.best_loss,
+            "epochs_trained": len(self.train_losses),
+            "final_lr": self.optimizer.param_groups[0]["lr"],
         }
 
-        history_path = os.path.join(os.path.dirname(self.check_point), 'training_history.json')
-        with open(history_path, 'w') as f:
+        history_path = os.path.join(
+            os.path.dirname(self.check_point), "training_history.json"
+        )
+        with open(history_path, "w") as f:
             json.dump(history, f, indent=2)
 
         print(f"训练历史已保存: {history_path}")
@@ -424,17 +452,16 @@ def compute_retrieval_metrics(similarity_matrix, labels):
         relevant_mask = (labels == sketch_label).float()
         if relevant_mask.sum() > 0:
             ap = average_precision_score(
-                relevant_mask.cpu().numpy(),
-                similarities.cpu().numpy()
+                relevant_mask.cpu().numpy(), similarities.cpu().numpy()
             )
             all_aps.append(ap)
 
     # 计算指标
     metrics = {
-        'top1_accuracy': top1_correct / N_sketch,
-        'top5_accuracy': top5_correct / N_sketch,
-        'top10_accuracy': top10_correct / N_sketch,
-        'mAP_all': np.mean(all_aps) if all_aps else 0.0
+        "top1_accuracy": top1_correct / N_sketch,
+        "top5_accuracy": top5_correct / N_sketch,
+        "top10_accuracy": top10_correct / N_sketch,
+        "mAP_all": np.mean(all_aps) if all_aps else 0.0,
     }
 
     return metrics
@@ -457,7 +484,9 @@ def evaluate_by_category(similarity_matrix, labels, category_names, categories):
 
     for cat_idx, category in enumerate(categories):
         # 找到该类别的草图索引
-        cat_sketch_indices = [i for i, cat in enumerate(category_names) if cat == category]
+        cat_sketch_indices = [
+            i for i, cat in enumerate(category_names) if cat == category
+        ]
 
         if len(cat_sketch_indices) == 0:
             continue
@@ -473,9 +502,9 @@ def evaluate_by_category(similarity_matrix, labels, category_names, categories):
 
         cat_accuracy = cat_correct / len(cat_sketch_indices)
         category_metrics[category] = {
-            'accuracy': cat_accuracy,
-            'num_samples': len(cat_sketch_indices),
-            'correct': cat_correct
+            "accuracy": cat_accuracy,
+            "num_samples": len(cat_sketch_indices),
+            "correct": cat_correct,
         }
 
     return category_metrics
@@ -506,7 +535,7 @@ def map_and_precision_at_k(sketch_fea, image_fea, class_id, k=200):
 
     for i in range(bs):
         dists = dist_matrix[i]  # 第 i 个 sketch 和所有 image 的距离
-        gt = class_id[i]        # 第 i 个 sketch 的真实类别
+        gt = class_id[i]  # 第 i 个 sketch 的真实类别
 
         # 按距离升序排序（距离越小越相似）
         sorted_indices = torch.argsort(dists, descending=False)
@@ -561,7 +590,7 @@ def compute_topk_accuracy(sketch_fea, image_fea, topk=(1, 5)):
     # 构造 ground truth index：每个 sketch 匹配 image 中相同索引位置的图像
     target = torch.arange(batch_size).unsqueeze(1).to(sketch_fea.device)  # [bs, 1]
 
-    correct = (sorted_indices[:, :max(topk)] == target).int()  # [bs, topk]
+    correct = (sorted_indices[:, : max(topk)] == target).int()  # [bs, topk]
 
     accs = []
     for k in topk:
@@ -597,7 +626,7 @@ def compute_topk_accuracy_with_file(sketch_fea, image_fea, data_indices, topk=(1
 
     # 正确的 image 匹配是与自身同位置的样本（即第 i 个 sketch 对应第 i 个 image）
     ground_truth = torch.arange(batch_size, device=device).unsqueeze(1)  # [bs, 1]
-    correct_matrix = (sorted_indices[:, :max(topk)] == ground_truth)  # [bs, max_k]
+    correct_matrix = sorted_indices[:, : max(topk)] == ground_truth  # [bs, max_k]
 
     accs = []
     acc1_matched_indices = []
@@ -609,7 +638,9 @@ def compute_topk_accuracy_with_file(sketch_fea, image_fea, data_indices, topk=(1
         accs.append(acc)
 
         # 提取命中的 sketch 索引
-        matched_sketch_indices = torch.nonzero(correct_k, as_tuple=False).squeeze(1)  # [num_matched]
+        matched_sketch_indices = torch.nonzero(correct_k, as_tuple=False).squeeze(
+            1
+        )  # [num_matched]
         # 转换为对应匹配到的 image 的“全局索引”
         # matched_data_indices = data_indices[matched_sketch_indices].tolist()
         matched_data_indices = [data_indices[i.item()] for i in matched_sketch_indices]
@@ -617,17 +648,21 @@ def compute_topk_accuracy_with_file(sketch_fea, image_fea, data_indices, topk=(1
         if k == 1:
             acc1_matched_indices = matched_data_indices
         elif k == 5:
-            acc5_matched_indices = list(set(matched_data_indices) - set(acc1_matched_indices))
+            acc5_matched_indices = list(
+                set(matched_data_indices) - set(acc1_matched_indices)
+            )
 
     return accs, acc1_matched_indices, acc5_matched_indices
 
 
-def visualize_embeddings(embeddings: torch.Tensor,
-                         labels: torch.Tensor,
-                         target_classes,
-                         class_names,
-                         perplexity=30,
-                         random_state=42):
+def visualize_embeddings(
+    embeddings: torch.Tensor,
+    labels: torch.Tensor,
+    target_classes,
+    class_names,
+    perplexity=30,
+    random_state=42,
+):
     """
     可视化嵌入特征，支持仅展示指定类别
     :param embeddings: [bs, emb] 的 tensor
@@ -653,17 +688,27 @@ def visualize_embeddings(embeddings: torch.Tensor,
 
     # 绘图
     plt.figure(figsize=(8, 8))
-    plt.rcParams['font.family'] = 'Times New Roman'
+    plt.rcParams["font.family"] = "Times New Roman"
     unique_labels = np.unique(labels_np)
-    cmap = plt.get_cmap('tab10' if len(unique_labels) <= 10 else 'tab20')
+    cmap = plt.get_cmap("tab10" if len(unique_labels) <= 10 else "tab20")
 
-    print('-----------------', unique_labels)
+    print("-----------------", unique_labels)
 
     for i, class_idx in enumerate(unique_labels):
         idx = labels_np == class_idx
-        label_name = class_names[class_idx] if class_names and class_idx < len(class_names) else f'Class {class_idx}'
-        plt.scatter(embeddings_2d[idx, 0], embeddings_2d[idx, 1],
-                    label=label_name, alpha=0.7, s=10, color=cmap(i) if i < 20 else 'black')  # cmap(i)
+        label_name = (
+            class_names[class_idx]
+            if class_names and class_idx < len(class_names)
+            else f"Class {class_idx}"
+        )
+        plt.scatter(
+            embeddings_2d[idx, 0],
+            embeddings_2d[idx, 1],
+            label=label_name,
+            alpha=0.7,
+            s=10,
+            color=cmap(i) if i < 20 else "black",
+        )  # cmap(i)
 
         # label_name = class_names[class_idx] if class_names and class_idx < len(class_names) else f'Class {class_idx}'
         # plt.scatter([], [], label=label_name, color=cmap(i) if i < 20 else 'black')
@@ -671,7 +716,5 @@ def visualize_embeddings(embeddings: torch.Tensor,
     # plt.legend()
     # plt.title("t-SNE Visualization of Embeddings")
     plt.tight_layout()
-    plt.axis('off')
+    plt.axis("off")
     plt.show()
-
-
